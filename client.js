@@ -7,11 +7,11 @@ const { createDataCenter } = require("src/client/data-center.cjs");
 const { createRequestService } = require("src/client/request-service.cjs");
 const { createRefreshService } = require("src/client/refresh-service.cjs");
 const { Status, css } = require("src/client/view.cjs");
-const { installDisplaySettings } = require("src/client/settings.cjs");
+const { installSettings } = require("src/client/settings.cjs");
 
 function apply(ctx) {
     const center = createDataCenter();
-    const settings = installDisplaySettings(ctx);
+    const settings = installSettings(ctx);
     const refresh = createRefreshService({ requests: createRequestService(), center, preferences: settings.preferences });
     ctx.effect(() => () => { refresh.dispose(); center.clear(); settings.dispose(); });
     ctx.effect(() => {
@@ -34,7 +34,7 @@ module.exports = { name: 'sub2api-status-client', inject: ['slots', 'modelDirect
 
 },
 "src/client/data-center.cjs": (module, exports, require) => {
-const EMPTY_SNAPSHOT = Object.freeze({ selection: null, sourceId: null, value: null, phase: 'unknown', stale: false, error: '', lastAttemptAt: null });
+const EMPTY_SNAPSHOT = Object.freeze({ selection: null, sourceId: null, value: null, phase: 'unknown', stale: false, error: '' });
 
 // 数据中心只保存快照和发布变更，不请求网络、不计时、不判断业务结果。
 function createDataCenter() {
@@ -95,15 +95,13 @@ module.exports = { createRequestService };
 "src/client/refresh-service.cjs": (module, exports, require) => {
 const { EMPTY_SNAPSHOT } = require("src/client/data-center.cjs");
 const requestOptions = require("src/request-options.json");
-const REFRESH_DELAY_MS = requestOptions.find((option) => option.key === 'requestIntervalMs').default;
-const REQUEST_TIMEOUT_MS = requestOptions.find((option) => option.key === 'requestTimeoutMs').default;
 const UNKNOWN = Object.freeze({ identified: false, multiplier: null, balance: null, reason: '当前 API 未知' });
 
 // 刷新服务拥有任务、超时和来源绑定；数据中心只接收它生成的快照。
 function createRefreshService({ requests, center, preferences, visibility = document }) {
     const bindings = new Map();
     const tasks = new Map();
-    let timing = { requestTimeoutMs: REQUEST_TIMEOUT_MS, requestIntervalMs: REFRESH_DELAY_MS };
+    let timing = Object.fromEntries(requestOptions.map((option) => [option.key, option.default]));
     let disposed = false;
     const active = () => !disposed && !visibility.hidden;
     const selectionKey = (selection) => selection ? JSON.stringify([selection.provider, selection.model]) : '';
@@ -191,13 +189,13 @@ function createRefreshService({ requests, center, preferences, visibility = docu
         const timeoutMs = timing.requestTimeoutMs;
         const timeout = setTimeout(() => controller.abort(), timeoutMs);
         const previous = task.store.getSnapshot();
-        task.store.publish({ ...previous, phase: previous.value ? 'refreshing' : 'loading', lastAttemptAt: Date.now() });
+        task.store.publish({ ...previous, phase: previous.value ? 'refreshing' : 'loading' });
         task.operation = (async () => {
             try {
                 const result = await requests.query(selection, task.id, controller.signal);
                 if (disposed || tasks.get(task.id) !== task || controller.signal.aborted) return;
                 if (result.sourceId !== task.id || !result.outcomes || !result.data) throw new Error('查询结果来源不匹配');
-                task.store.publish({ ...previous, ...mergeResult(previous.value, result), lastAttemptAt: Date.now() });
+                task.store.publish({ ...previous, ...mergeResult(previous.value, result) });
             } catch (error) {
                 if (disposed || tasks.get(task.id) !== task) return;
                 if (error.code === 'source-changed') {
@@ -205,7 +203,7 @@ function createRefreshService({ requests, center, preferences, visibility = docu
                     return;
                 }
                 task.store.publish({ ...previous, phase: 'error', stale: previous.value?.identified === true,
-                    error: controller.signal.aborted ? `查询超时（${timeoutMs} ms），保留上次成功数据` : error.message || '查询失败，保留上次成功数据', lastAttemptAt: Date.now() });
+                    error: controller.signal.aborted ? `查询超时（${timeoutMs} ms），保留上次成功数据` : error.message || '查询失败，保留上次成功数据' });
             } finally {
                 clearTimeout(timeout);
                 task.operation = null;
@@ -259,7 +257,7 @@ function createRefreshService({ requests, center, preferences, visibility = docu
             if (disposed || generation !== binding.generation || !binding.users) return;
             const previous = binding.record.getSnapshot();
             publishBinding(binding, { ...previous, phase: 'error', stale: previous.value?.identified === true,
-                error: controller.signal.aborted ? `解析 API 配置超时（${timeoutMs} ms）` : error.message || '解析 API 配置失败', lastAttemptAt: Date.now() });
+                error: controller.signal.aborted ? `解析 API 配置超时（${timeoutMs} ms）` : error.message || '解析 API 配置失败' });
             if (active()) scheduleResolve(binding);
         } finally {
             clearTimeout(timeout);
@@ -351,7 +349,7 @@ function createRefreshService({ requests, center, preferences, visibility = docu
         }
     };
 }
-module.exports = { createRefreshService, REFRESH_DELAY_MS, REQUEST_TIMEOUT_MS };
+module.exports = { createRefreshService };
 
 },
 "src/request-options.json": (module, exports, require) => {
@@ -375,7 +373,7 @@ function moneyText(value) { return typeof value === 'number' ? `$${money.format(
 function countText(value) { return typeof value === 'number' ? number.format(value) : '未知'; }
 function multiplierText(value) { return typeof value === 'number' ? `${number.format(value)}×` : '未知'; }
 
-function DetailPanel({ value, provider, model, refresh, snapshot, visibilityOptions }) {
+function DetailPanel({ value, provider, model, refresh, snapshot, visibilityOptions, requestTiming }) {
     const sections = [];
     const sectionOptions = { '当前 API': 'showOverview', '计费倍率': 'showBilling', '账户与套餐': 'showAccount', 'Key 总额度': 'showQuota', '套餐额度（分组共享）': 'showSubscription', '今日用量（当前 Key）': 'showToday', '累计用量（当前 Key）': 'showTotal', '请求统计': 'showPerformance' };
     const row = (label, value) => [label, value];
@@ -444,7 +442,7 @@ function DetailPanel({ value, provider, model, refresh, snapshot, visibilityOpti
         h('div', { className: 'dsh-sub2api-title' }, h('span', null, 'Sub2API 用量详情'), h('button', { type: 'button', className: 'dsh-sub2api-refresh', onClick: refresh }, '刷新')),
         h('div', { className: 'dsh-sub2api-rule', 'aria-hidden': true }),
         h('div', { className: 'dsh-sub2api-body' }, sections, snapshot.error && h('p', { className: 'dsh-sub2api-note', role: 'status' }, snapshot.error + (snapshot.stale ? '（显示上次成功数据）' : '')), value.reason && h('p', { className: 'dsh-sub2api-note' }, value.reason)),
-        h('div', { className: 'dsh-sub2api-footnote' }, `请求结束后等待 5 秒 · 10 秒超时${value.updatedAt ? ` · ${new Date(value.updatedAt).toLocaleTimeString()} 更新` : ''}`));
+        h('div', { className: 'dsh-sub2api-footnote' }, `请求结束后等待 ${requestTiming.requestIntervalMs} ms · ${requestTiming.requestTimeoutMs} ms 超时${value.updatedAt ? ` · ${new Date(value.updatedAt).toLocaleTimeString()} 更新` : ''}`));
 }
 
 // 展示层只订阅数据中心快照、格式化数据和管理浮窗交互。
@@ -484,7 +482,7 @@ function Status({ store, refresh, preferences }) {
         h('span', null, `余额 ${balance}`), staleLabel && h('span', { className: 'dsh-sub2api-stale' }, staleLabel)),
         open && createPortal(h('div', { id: dialogId, ref: panelRef, className: 'dsh-sub2api-panel', role: 'dialog',
             'aria-label': 'Sub2API 用量详情', style: pos ?? { visibility: 'hidden', left: 0, top: 0 }
-        }, h(DetailPanel, { value, provider, model, refresh, snapshot, visibilityOptions })), document.body));
+        }, h(DetailPanel, { value, provider, model, refresh, snapshot, visibilityOptions, requestTiming })), document.body));
 }
 
 const css = '\n.dsh-sub2api-status{box-sizing:border-box;display:inline-flex;align-items:center;gap:6px;flex-shrink:0;max-width:100%;border:0;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px));padding:1px 8px;border-radius:999px;cursor:pointer;white-space:nowrap;font-variant-numeric:tabular-nums}\n.dsh-sub2api-anchor{min-width:0;display:inline-flex}\n.dsh-sub2api-status:hover,.dsh-sub2api-status[aria-expanded=true]{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover)}\n.dsh-sub2api-status:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}\n.dsh-sub2api-status-separator{color:var(--dsw-alias-separator-primary);margin:0 6px}\n.dsh-sub2api-panel{z-index:1100;box-sizing:border-box;border-radius:var(--dsw-radius-lg);background:var(--dsw-specific-menu);width:max-content;min-width:min(300px,calc(100vw - 24px));max-width:min(440px,calc(100vw - 24px));max-height:calc(100vh - 24px);backdrop-filter:var(--dsw-menu-backdrop-filter);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-secondary);cursor:default;border:0;padding:16px;font-size:12px;line-height:18px;position:fixed;display:flex;flex-direction:column}\n.dsh-sub2api-title{color:var(--dsw-alias-label-primary);display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:8px;font-weight:500}\n.dsh-sub2api-rule{border-top:.5px solid var(--dsw-alias-border-l2);margin-bottom:10px}\n.dsh-sub2api-body{overflow-y:auto;min-height:0;max-height:min(480px,calc(100vh - 120px));overscroll-behavior:contain}\n.dsh-sub2api-section+.dsh-sub2api-section{border-top:.5px solid var(--dsw-alias-border-l2);margin-top:12px;padding-top:10px}\n.dsh-sub2api-section-title{font-weight:500;margin-bottom:6px;color:var(--dsw-alias-label-secondary)}\n.dsh-sub2api-details{color:var(--dsw-alias-label-tertiary);display:grid;grid-template-columns:minmax(100px,auto) minmax(0,1fr);gap:6px 16px;margin:0}\n.dsh-sub2api-details dt,.dsh-sub2api-details dd{min-width:0;margin:0}\n.dsh-sub2api-details dd{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}\n.dsh-sub2api-refresh{font:inherit;color:var(--dsw-alias-label-tertiary);background:transparent;border:0;border-radius:var(--dsw-radius-sm);padding:2px 6px;cursor:pointer}\n.dsh-sub2api-refresh:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}\n.dsh-sub2api-footnote,.dsh-sub2api-note{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;margin:10px 0 0}\n.dsh-sub2api-series{border-top:.5px solid var(--dsw-alias-border-l2);margin-top:12px;padding-top:10px}\n.dsh-sub2api-series summary{cursor:pointer;font-weight:500}\n.dsh-sub2api-series table{width:100%;border-collapse:collapse;margin-top:6px;font-variant-numeric:tabular-nums}\n.dsh-sub2api-series th,.dsh-sub2api-series td{padding:4px;text-align:right;border-bottom:.5px solid var(--dsw-alias-border-l2)}\n.dsh-sub2api-series th:first-child,.dsh-sub2api-series td:first-child{text-align:left;overflow-wrap:anywhere;max-width:180px}\n\n.dsh-sub2api-stale{font-size:11px;color:var(--dsw-alias-label-tertiary);margin-left:4px}\n';
@@ -525,19 +523,18 @@ function SettingsPage({ controller }) {
             onClick: () => options.forEach((option) => controller.actions.resetField(option.key)) }, '恢复默认显示项')));
 }
 
-function installDisplaySettings(ctx) {
+function installSettings(ctx) {
     const mirror = ctx.configForms.describe();
-    const scopes = new Map();
+    let scope;
     let pageOff;
     let currentNs;
     let form;
     const preferences = {
-        getSnapshot: () => currentNs ? scopes.get(currentNs).getSnapshot() : mirror.getSnapshot(),
+        getSnapshot: () => scope ? scope.getSnapshot() : mirror.getSnapshot(),
         subscribe(listener) {
             let off;
             const sync = () => {
                 off?.();
-                const scope = currentNs && scopes.get(currentNs);
                 off = scope?.subscribe(listener);
                 listener();
             };
@@ -555,9 +552,7 @@ function installDisplaySettings(ctx) {
         pageOff?.();
         form?.dispose();
         currentNs = ns;
-        if (!ns) return;
-        const scope = ctx.configForms.get(ns);
-        scopes.set(ns, scope);
+        scope = ctx.configForms.get(ns);
         form = new SettingsFormModel(scope, [
             ...options.map((option) => ({
                 field: option.key,
@@ -590,7 +585,7 @@ function installDisplaySettings(ctx) {
     synchronize();
     return { preferences, dispose: () => { mirrorOff(); pageOff?.(); form?.dispose(); } };
 }
-module.exports = { installDisplaySettings };
+module.exports = { installSettings };
 
 },
 "src/display-options.json": (module, exports, require) => {

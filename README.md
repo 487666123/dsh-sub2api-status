@@ -147,13 +147,13 @@ dsh plugin --profile web add .
 | `src/client/data-center.cjs` | 数据中心：保存快照并提供读取、订阅，不请求或计时 |
 | `src/client/refresh-service.cjs` | 刷新服务：来源共享、模型绑定、超时、调度和失败保留策略 |
 | `src/client/view.cjs` | 展示层：订阅快照与设置、格式化数据、管理详情窗 |
-| `src/client/settings.cjs` | 原生设置卡片及显示偏好 |
+| `src/client/settings.cjs` | 原生设置页、请求时间及显示偏好 |
 | `src/client/entry.cjs` | 组合服务、注册插槽、管理插件生命周期 |
 | `src/display-options.json` | 宿主 schema 与前端共用的显示项定义 |
 | `src/request-options.json` | 宿主 schema、设置表单和刷新服务共用的请求时间定义 |
 | `scripts/build-client.mjs` | 将本地模块打包为 DSH 浏览器工厂 |
 
-`index.js`、`host.js` 和 `server.js` 保留为宿主兼容入口。请求时间通过原生设置保存到当前 profile，默认值与范围由 `src/request-options.json` 定义。
+`index.js` 直接导出宿主实现，包导出的 `./host` 和 `./server` 别名指向同一入口。DSH 挂载使用包根名称，以便同时加载客户端。请求时间通过原生设置保存到当前 profile，默认值与范围由 `src/request-options.json` 定义。
 
 ## 卸载
 

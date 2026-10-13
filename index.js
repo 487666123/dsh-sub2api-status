@@ -1,1 +1,1 @@
-export { name, inject, Config, apply } from './host.js';
+export { name, inject, Config, apply } from './src/host/plugin.mjs';

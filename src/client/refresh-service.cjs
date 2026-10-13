@@ -1,14 +1,12 @@
 const { EMPTY_SNAPSHOT } = require('./data-center.cjs');
 const requestOptions = require('../request-options.json');
-const REFRESH_DELAY_MS = requestOptions.find((option) => option.key === 'requestIntervalMs').default;
-const REQUEST_TIMEOUT_MS = requestOptions.find((option) => option.key === 'requestTimeoutMs').default;
 const UNKNOWN = Object.freeze({ identified: false, multiplier: null, balance: null, reason: '当前 API 未知' });
 
 // 刷新服务拥有任务、超时和来源绑定；数据中心只接收它生成的快照。
 function createRefreshService({ requests, center, preferences, visibility = document }) {
     const bindings = new Map();
     const tasks = new Map();
-    let timing = { requestTimeoutMs: REQUEST_TIMEOUT_MS, requestIntervalMs: REFRESH_DELAY_MS };
+    let timing = Object.fromEntries(requestOptions.map((option) => [option.key, option.default]));
     let disposed = false;
     const active = () => !disposed && !visibility.hidden;
     const selectionKey = (selection) => selection ? JSON.stringify([selection.provider, selection.model]) : '';
@@ -96,13 +94,13 @@ function createRefreshService({ requests, center, preferences, visibility = docu
         const timeoutMs = timing.requestTimeoutMs;
         const timeout = setTimeout(() => controller.abort(), timeoutMs);
         const previous = task.store.getSnapshot();
-        task.store.publish({ ...previous, phase: previous.value ? 'refreshing' : 'loading', lastAttemptAt: Date.now() });
+        task.store.publish({ ...previous, phase: previous.value ? 'refreshing' : 'loading' });
         task.operation = (async () => {
             try {
                 const result = await requests.query(selection, task.id, controller.signal);
                 if (disposed || tasks.get(task.id) !== task || controller.signal.aborted) return;
                 if (result.sourceId !== task.id || !result.outcomes || !result.data) throw new Error('查询结果来源不匹配');
-                task.store.publish({ ...previous, ...mergeResult(previous.value, result), lastAttemptAt: Date.now() });
+                task.store.publish({ ...previous, ...mergeResult(previous.value, result) });
             } catch (error) {
                 if (disposed || tasks.get(task.id) !== task) return;
                 if (error.code === 'source-changed') {
@@ -110,7 +108,7 @@ function createRefreshService({ requests, center, preferences, visibility = docu
                     return;
                 }
                 task.store.publish({ ...previous, phase: 'error', stale: previous.value?.identified === true,
-                    error: controller.signal.aborted ? `查询超时（${timeoutMs} ms），保留上次成功数据` : error.message || '查询失败，保留上次成功数据', lastAttemptAt: Date.now() });
+                    error: controller.signal.aborted ? `查询超时（${timeoutMs} ms），保留上次成功数据` : error.message || '查询失败，保留上次成功数据' });
             } finally {
                 clearTimeout(timeout);
                 task.operation = null;
@@ -164,7 +162,7 @@ function createRefreshService({ requests, center, preferences, visibility = docu
             if (disposed || generation !== binding.generation || !binding.users) return;
             const previous = binding.record.getSnapshot();
             publishBinding(binding, { ...previous, phase: 'error', stale: previous.value?.identified === true,
-                error: controller.signal.aborted ? `解析 API 配置超时（${timeoutMs} ms）` : error.message || '解析 API 配置失败', lastAttemptAt: Date.now() });
+                error: controller.signal.aborted ? `解析 API 配置超时（${timeoutMs} ms）` : error.message || '解析 API 配置失败' });
             if (active()) scheduleResolve(binding);
         } finally {
             clearTimeout(timeout);
@@ -256,4 +254,4 @@ function createRefreshService({ requests, center, preferences, visibility = docu
         }
     };
 }
-module.exports = { createRefreshService, REFRESH_DELAY_MS, REQUEST_TIMEOUT_MS };
+module.exports = { createRefreshService };

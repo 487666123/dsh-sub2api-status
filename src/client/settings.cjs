@@ -31,19 +31,18 @@ function SettingsPage({ controller }) {
             onClick: () => options.forEach((option) => controller.actions.resetField(option.key)) }, '恢复默认显示项')));
 }
 
-function installDisplaySettings(ctx) {
+function installSettings(ctx) {
     const mirror = ctx.configForms.describe();
-    const scopes = new Map();
+    let scope;
     let pageOff;
     let currentNs;
     let form;
     const preferences = {
-        getSnapshot: () => currentNs ? scopes.get(currentNs).getSnapshot() : mirror.getSnapshot(),
+        getSnapshot: () => scope ? scope.getSnapshot() : mirror.getSnapshot(),
         subscribe(listener) {
             let off;
             const sync = () => {
                 off?.();
-                const scope = currentNs && scopes.get(currentNs);
                 off = scope?.subscribe(listener);
                 listener();
             };
@@ -61,9 +60,7 @@ function installDisplaySettings(ctx) {
         pageOff?.();
         form?.dispose();
         currentNs = ns;
-        if (!ns) return;
-        const scope = ctx.configForms.get(ns);
-        scopes.set(ns, scope);
+        scope = ctx.configForms.get(ns);
         form = new SettingsFormModel(scope, [
             ...options.map((option) => ({
                 field: option.key,
@@ -96,4 +93,4 @@ function installDisplaySettings(ctx) {
     synchronize();
     return { preferences, dispose: () => { mirrorOff(); pageOff?.(); form?.dispose(); } };
 }
-module.exports = { installDisplaySettings };
+module.exports = { installSettings };

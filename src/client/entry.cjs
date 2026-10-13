@@ -2,11 +2,11 @@ const { createDataCenter } = require('./data-center.cjs');
 const { createRequestService } = require('./request-service.cjs');
 const { createRefreshService } = require('./refresh-service.cjs');
 const { Status, css } = require('./view.cjs');
-const { installDisplaySettings } = require('./settings.cjs');
+const { installSettings } = require('./settings.cjs');
 
 function apply(ctx) {
     const center = createDataCenter();
-    const settings = installDisplaySettings(ctx);
+    const settings = installSettings(ctx);
     const refresh = createRefreshService({ requests: createRequestService(), center, preferences: settings.preferences });
     ctx.effect(() => () => { refresh.dispose(); center.clear(); settings.dispose(); });
     ctx.effect(() => {

@@ -1,4 +1,4 @@
-const EMPTY_SNAPSHOT = Object.freeze({ selection: null, sourceId: null, value: null, phase: 'unknown', stale: false, error: '', lastAttemptAt: null });
+const EMPTY_SNAPSHOT = Object.freeze({ selection: null, sourceId: null, value: null, phase: 'unknown', stale: false, error: '' });
 
 // 数据中心只保存快照和发布变更，不请求网络、不计时、不判断业务结果。
 function createDataCenter() {
