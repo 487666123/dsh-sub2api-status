@@ -1,0 +1,13 @@
+[
+  { "key": "showOverview", "label": "当前 API、倍率与余额", "default": true },
+  { "key": "showBilling", "label": "倍率明细与高峰时段", "default": true },
+  { "key": "showAccount", "label": "账户与套餐信息", "default": true },
+  { "key": "showQuota", "label": "Key 总额度", "default": true },
+  { "key": "showRateLimits", "label": "5 小时 / 1 天 / 7 天额度", "default": true },
+  { "key": "showSubscription", "label": "套餐日 / 周 / 月额度", "default": true },
+  { "key": "showToday", "label": "今日用量", "default": true },
+  { "key": "showTotal", "label": "累计用量", "default": true },
+  { "key": "showPerformance", "label": "请求统计", "default": true },
+  { "key": "showDailyUsage", "label": "每日用量列表", "default": true },
+  { "key": "showModelStats", "label": "模型统计列表", "default": true }
+]

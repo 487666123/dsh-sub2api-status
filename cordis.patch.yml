@@ -1,0 +1,3 @@
+- insert:
+    - id: sub2api-status-server
+      name: dsh-sub2api-status/server
