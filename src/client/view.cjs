@@ -1,6 +1,7 @@
 const React = require('react');
 const { createPortal } = require('react-dom');
 const { useAnchoredPosition, useDismissOnOutsidePointer } = require('@deepseek-ai/dsh-client-ui-primitives');
+const requestOptions = require('../request-options.json');
 const h = React.createElement;
 const EMPTY = Object.freeze({ identified: false, multiplier: null, balance: null, reason: '当前 API 未知' });
 const number = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 4 });
@@ -109,10 +110,11 @@ function Status({ store, refresh, preferences }) {
     const multiplier = multiplierText(value.multiplier);
     const balance = moneyText(value.balance);
     const staleLabel = snapshot.stale ? snapshot.phase === 'refreshing' ? '数据已过期' : '更新失败' : '';
+    const requestTiming = Object.fromEntries(requestOptions.map((option) => [option.key, visibilityOptions[option.key] ?? option.default]));
     const details = [value.identified ? 'Sub2API' : 'API 未知', value.site,
         provider && model ? `${provider} / ${model}` : null, value.reason, snapshot.error,
         value.updatedAt ? `上次成功更新 ${new Date(value.updatedAt).toLocaleTimeString()}` : null,
-        '请求结束后等待 5 秒 · 10 秒超时 · 点击查看详情'].filter(Boolean).join('\n');
+        `请求结束后等待 ${requestTiming.requestIntervalMs} ms · ${requestTiming.requestTimeoutMs} ms 超时 · 点击查看详情`].filter(Boolean).join('\n');
     return h('span', { ref: rootRef, className: 'dsh-sub2api-anchor' },
         h('button', { type: 'button', className: 'dsh-sub2api-status', title: details,
             'aria-label': `倍率 ${multiplier}，余额 ${balance}${staleLabel ? `，${staleLabel}` : ''}，查看详情`,

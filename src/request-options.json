@@ -1,0 +1,4 @@
+[
+  { "key": "requestTimeoutMs", "label": "数据请求超时（ms）", "default": 10000, "min": 1, "max": 2147483647, "hint": "单次请求的最长等待时间，默认 10000 ms。保存后用于下一次请求。" },
+  { "key": "requestIntervalMs", "label": "数据请求间隔（ms）", "default": 5000, "min": 1, "max": 2147483647, "hint": "上一次请求结束后等待的时间，默认 5000 ms。" }
+]

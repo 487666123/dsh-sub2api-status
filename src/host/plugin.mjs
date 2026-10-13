@@ -1,9 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import z from '@deepseek-ai/schemastery';
 import displayOptions from '../display-options.json' with { type: 'json' };
+import requestOptions from '../request-options.json' with { type: 'json' };
 import { resolveSource, querySource } from './request-service.mjs';
 
-export const Config = z.object(Object.fromEntries(displayOptions.map((option) => [option.key, z.boolean().default(option.default).volatile()])));
+export const Config = z.object(Object.fromEntries([
+    ...displayOptions.map((option) => [option.key, z.boolean().default(option.default).volatile()]),
+    ...requestOptions.map((option) => [option.key, z.natural().min(option.min).max(option.max).default(option.default).volatile()])
+]));
 
 export const name = 'sub2api-status';
 export const inject = ['webServer', 'connection', 'llm', 'settings', 'credentials'];
@@ -32,7 +36,7 @@ export function apply(ctx) {
             if (peer && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(peer)) return send(403, { reason: '仅支持本机访问' });
             if (request.headers['sec-fetch-site'] === 'cross-site') return send(403, { reason: '不支持跨站访问' });
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 10_000);
+            const timeout = setTimeout(() => controller.abort(), ctx.fiber.config.requestTimeoutMs);
             const closed = () => { if (!response.writableEnded) controller.abort(); };
             response.on('close', closed);
             controllers.add(controller);

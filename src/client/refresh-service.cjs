@@ -1,15 +1,42 @@
 const { EMPTY_SNAPSHOT } = require('./data-center.cjs');
-const REFRESH_DELAY_MS = 5_000;
-const REQUEST_TIMEOUT_MS = 10_000;
+const requestOptions = require('../request-options.json');
+const REFRESH_DELAY_MS = requestOptions.find((option) => option.key === 'requestIntervalMs').default;
+const REQUEST_TIMEOUT_MS = requestOptions.find((option) => option.key === 'requestTimeoutMs').default;
 const UNKNOWN = Object.freeze({ identified: false, multiplier: null, balance: null, reason: '当前 API 未知' });
 
 // 刷新服务拥有任务、超时和来源绑定；数据中心只接收它生成的快照。
-function createRefreshService({ requests, center, visibility = document }) {
+function createRefreshService({ requests, center, preferences, visibility = document }) {
     const bindings = new Map();
     const tasks = new Map();
+    let timing = { requestTimeoutMs: REQUEST_TIMEOUT_MS, requestIntervalMs: REFRESH_DELAY_MS };
     let disposed = false;
     const active = () => !disposed && !visibility.hidden;
     const selectionKey = (selection) => selection ? JSON.stringify([selection.provider, selection.model]) : '';
+
+    function scheduleTask(task, completedAt = Date.now()) {
+        clearTimeout(task.timer);
+        task.completedAt = completedAt;
+        task.timer = setTimeout(() => { task.timer = null; void run(task); }, Math.max(0, completedAt + timing.requestIntervalMs - Date.now()));
+    }
+    function scheduleResolve(binding, completedAt = Date.now()) {
+        clearTimeout(binding.resolveTimer);
+        binding.resolveTimer = null;
+        binding.completedAt = completedAt;
+        binding.resolveTimer = setTimeout(() => { binding.resolveTimer = null; void resolveBinding(binding); }, Math.max(0, completedAt + timing.requestIntervalMs - Date.now()));
+    }
+    function synchronizeTiming() {
+        const value = preferences?.getSnapshot().value || {};
+        const next = Object.fromEntries(requestOptions.map((option) => {
+            const input = value[option.key];
+            return [option.key, Number.isInteger(input) && input >= option.min && input <= option.max ? input : option.default];
+        }));
+        const intervalChanged = next.requestIntervalMs !== timing.requestIntervalMs;
+        timing = next;
+        if (!intervalChanged || !active()) return;
+        // 等待中的任务按上一次完成时间重新计算；在途请求保持启动时的超时设置。
+        for (const task of tasks.values()) if (task.timer && !task.operation) scheduleTask(task, task.completedAt);
+        for (const binding of bindings.values()) if (binding.resolveTimer && binding.users) scheduleResolve(binding, binding.completedAt);
+    }
 
     function publishBinding(binding, snapshot) {
         binding.record.publish({ ...snapshot, selection: binding.selection, sourceId: binding.sourceId });
@@ -30,6 +57,7 @@ function createRefreshService({ requests, center, visibility = document }) {
         binding.generation += 1;
         binding.resolveController?.abort();
         clearTimeout(binding.resolveTimer);
+        binding.resolveTimer = null;
         detach(binding);
     }
 
@@ -65,7 +93,8 @@ function createRefreshService({ requests, center, visibility = document }) {
         const selection = { ...binding.selection };
         task.controller = new AbortController();
         const controller = task.controller;
-        const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        const timeoutMs = timing.requestTimeoutMs;
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
         const previous = task.store.getSnapshot();
         task.store.publish({ ...previous, phase: previous.value ? 'refreshing' : 'loading', lastAttemptAt: Date.now() });
         task.operation = (async () => {
@@ -81,13 +110,13 @@ function createRefreshService({ requests, center, visibility = document }) {
                     return;
                 }
                 task.store.publish({ ...previous, phase: 'error', stale: previous.value?.identified === true,
-                    error: controller.signal.aborted ? '查询超时（10 秒），保留上次成功数据' : error.message || '查询失败，保留上次成功数据', lastAttemptAt: Date.now() });
+                    error: controller.signal.aborted ? `查询超时（${timeoutMs} ms），保留上次成功数据` : error.message || '查询失败，保留上次成功数据', lastAttemptAt: Date.now() });
             } finally {
                 clearTimeout(timeout);
                 task.operation = null;
                 task.controller = null;
                 // 仅在本次操作结束后安排下一次，手动刷新也复用同一在途操作。
-                if (tasks.get(task.id) === task && task.bindings.size && active()) task.timer = setTimeout(() => run(task), REFRESH_DELAY_MS);
+                if (tasks.get(task.id) === task && task.bindings.size && active()) scheduleTask(task);
             }
         })();
         return task.operation;
@@ -98,16 +127,18 @@ function createRefreshService({ requests, center, visibility = document }) {
         const generation = ++binding.generation;
         binding.resolveController?.abort();
         clearTimeout(binding.resolveTimer);
+        binding.resolveTimer = null;
         const controller = new AbortController();
         binding.resolveController = controller;
-        const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        const timeoutMs = timing.requestTimeoutMs;
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
         try {
             const descriptor = await requests.resolveSource(binding.selection, controller.signal);
             if (disposed || generation !== binding.generation || !binding.users || controller.signal.aborted) return;
             if (!descriptor.sourceId) {
                 detach(binding);
                 publishBinding(binding, { ...EMPTY_SNAPSHOT, value: { ...UNKNOWN, reason: descriptor.reason || '当前模型没有可查询的 API 配置' } });
-                binding.resolveTimer = setTimeout(() => resolveBinding(binding), REFRESH_DELAY_MS);
+                scheduleResolve(binding);
                 return;
             }
             if (binding.sourceId === descriptor.sourceId && tasks.has(descriptor.sourceId)) {
@@ -133,8 +164,8 @@ function createRefreshService({ requests, center, visibility = document }) {
             if (disposed || generation !== binding.generation || !binding.users) return;
             const previous = binding.record.getSnapshot();
             publishBinding(binding, { ...previous, phase: 'error', stale: previous.value?.identified === true,
-                error: controller.signal.aborted ? '解析 API 配置超时（10 秒）' : error.message || '解析 API 配置失败', lastAttemptAt: Date.now() });
-            if (active()) binding.resolveTimer = setTimeout(() => resolveBinding(binding), REFRESH_DELAY_MS);
+                error: controller.signal.aborted ? `解析 API 配置超时（${timeoutMs} ms）` : error.message || '解析 API 配置失败', lastAttemptAt: Date.now() });
+            if (active()) scheduleResolve(binding);
         } finally {
             clearTimeout(timeout);
             if (binding.resolveController === controller) binding.resolveController = null;
@@ -147,6 +178,7 @@ function createRefreshService({ requests, center, visibility = document }) {
         binding.generation += 1;
         binding.resolveController?.abort();
         clearTimeout(binding.resolveTimer);
+        binding.resolveTimer = null;
         binding.sourceOff?.();
         binding.sourceOff = null;
         binding.selection = selection ? { provider: selection.provider, model: selection.model } : null;
@@ -205,14 +237,18 @@ function createRefreshService({ requests, center, visibility = document }) {
         }
         for (const binding of bindings.values()) {
             clearTimeout(binding.resolveTimer);
+            binding.resolveTimer = null;
             if (active() && binding.users && !binding.sourceId) void resolveBinding(binding);
         }
     }
+    const preferencesOff = preferences?.subscribe(synchronizeTiming);
+    synchronizeTiming();
     visibility.addEventListener('visibilitychange', onVisibility);
     return {
         bindSession, invalidate,
         dispose() {
             disposed = true;
+            preferencesOff?.();
             visibility.removeEventListener('visibilitychange', onVisibility);
             for (const binding of bindings.values()) stop(binding);
             bindings.clear();
