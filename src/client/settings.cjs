@@ -16,18 +16,18 @@ function SettingsPage({ controller }) {
         labels: { unavailable: 'Sub2API 插件设置暂不可用', readOnly: '当前设置为只读', saveFailed: '保存失败，请重试', save: '保存', saving: '保存中…' },
         onSave: controller.actions.save, onDiscard: controller.actions.discard
     }, h('div', { className: 'dsh-sub2api-setting-fields' },
-        requestOptions.map((option) => h(SettingsValueField, {
+        h('div', { className: 'dsh-sub2api-request-fields' }, requestOptions.map((option) => h(SettingsValueField, {
             key: option.key, id: `sub2api-${option.key}`, label: option.label, hint: option.hint, numeric: true,
             overriddenLabel: '已覆盖', resetLabel: '恢复默认', invalidLabel: `请输入 ${option.min}–${option.max} 之间的整数`,
             disabled: !state.writable || state.saving, ...state.fields[option.key],
             onEdit: (text) => controller.actions.edit(option.key, text),
             onReset: () => controller.actions.resetField(option.key)
-        })),
+        }))),
         options.map((option) => h('div', { key: option.key, className: 'dsh-sub2api-setting-row' },
         h('div', { className: 'dsh-sub2api-setting-label' }, option.label),
         h(Switch, { checked: state.fields[option.key].text === 'true', label: option.label, disabled: !state.writable || state.saving,
             onChange: (checked) => controller.actions.edit(option.key, String(checked)) })))),
-        h(Button, { className: 'dsh-sub2api-setting-reset', variant: 'secondary', disabled: !state.writable || state.saving,
+        h(Button, { className: 'dsh-sub2api-setting-reset', variant: 'outline', disabled: !state.writable || state.saving,
             onClick: () => options.forEach((option) => controller.actions.resetField(option.key)) }, '恢复默认显示项')));
 }
 
