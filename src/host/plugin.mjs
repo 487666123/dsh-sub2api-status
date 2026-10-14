@@ -36,7 +36,8 @@ export function apply(ctx) {
             if (peer && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(peer)) return send(403, { reason: '仅支持本机访问' });
             if (request.headers['sec-fetch-site'] === 'cross-site') return send(403, { reason: '不支持跨站访问' });
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), ctx.fiber.config.requestTimeoutMs);
+            // 原生动态配置是 Volatile 包装，计时器必须读取其中的毫秒数。
+            const timeout = setTimeout(() => controller.abort(), ctx.fiber.config.requestTimeoutMs.get());
             const closed = () => { if (!response.writableEnded) controller.abort(); };
             response.on('close', closed);
             controllers.add(controller);
