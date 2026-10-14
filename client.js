@@ -251,7 +251,7 @@ function createRefreshService({ requests, center, preferences, visibility = docu
             task.bindings.add(binding);
             binding.sourceOff = task.store.subscribe(() => publishBinding(binding, task.store.getSnapshot()));
             publishBinding(binding, task.store.getSnapshot());
-            // 已有来源的任务继续原节奏，不因切换同站点模型而重复请求。
+            // 其他会话正在使用的来源继续原节奏，共享已有请求。
             if (!task.operation && !task.timer) void run(task);
         } catch (error) {
             if (disposed || generation !== binding.generation || !binding.users) return;
@@ -268,14 +268,8 @@ function createRefreshService({ requests, center, preferences, visibility = docu
     function synchronize(binding) {
         const selection = binding.directory.store.getSnapshot().current;
         if (selectionKey(selection) === selectionKey(binding.selection)) return;
-        binding.generation += 1;
-        binding.resolveController?.abort();
-        clearTimeout(binding.resolveTimer);
-        binding.resolveTimer = null;
-        binding.sourceOff?.();
-        binding.sourceOff = null;
+        clearBinding(binding);
         binding.selection = selection ? { provider: selection.provider, model: selection.model } : null;
-        if (!binding.selection || !binding.available) detach(binding);
         publishBinding(binding, { ...EMPTY_SNAPSHOT, phase: selection && binding.available ? 'loading' : 'unknown' });
         void resolveBinding(binding);
     }
@@ -294,7 +288,18 @@ function createRefreshService({ requests, center, preferences, visibility = docu
     }
     function bindSession(sessionId, directory, available) {
         let binding = bindings.get(sessionId);
-        if (binding) return binding.public;
+        if (binding) {
+            if (binding.directory !== directory || binding.available !== available) {
+                // 会话重新挂载后可能创建新的目录，保留展示订阅并替换旧目录监听。
+                stop(binding);
+                binding.directory = directory;
+                binding.available = available;
+                binding.selection = null;
+                publishBinding(binding, EMPTY_SNAPSHOT);
+                if (binding.users) start(binding);
+            }
+            return binding.public;
+        }
         binding = { record: center.storeFor(`session:${sessionId}`), directory, available, selection: null, sourceId: null, users: 0, generation: 0 };
         binding.public = {
             store: {
